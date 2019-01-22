@@ -1,0 +1,631 @@
+#!/bin/bash
+
+set -o errexit -o noglob -o nounset -o pipefail
+
+if [ -n "${LNET_GETOPT_DEBUG:-""}" ]; then
+	export PS4='+${BASH_SOURCE}:${LINENO}:${FUNCNAME:+"${FUNCNAME}:"} '
+	err="$(mktemp /tmp/getopt-sh-XXX.stderr)"
+	printf '%s %s\n' "getopt-sh stderr output to:" "${err}" >&2
+	exec 2> "${err}"
+	dbg="$(dirname "${err}")/$(basename "${err}" ".stderr").xtrace"
+	printf '%s %s\n' "getopt-sh debug output to:" "${dbg}" >&2
+	exec {bash_xtracefd}> "${dbg}"
+	BASH_XTRACEFD=${bash_xtracefd}
+	set -x
+fi
+
+###
+# Live never ending Tale
+#
+# live-net-initramfs script
+#
+# Copyright: (C) 2009-2014 Jordi Pujol <jordi_pujol@telefonica.net>
+# License:   GPLv2
+#
+# Live never ending Tale Project Homepage:
+# http://livenet.selfip.com
+###
+
+#
+# Copyright (C) 2008-2013 Jordi Pujol <jordi_pujol AT telefonica DOT net>
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation; either version 2 of the License, or (at your option)
+# any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+# or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+# for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA.
+
+usage="Usage:
+
+getopt-sh implements an advanced getopt functionality.
+
+Reads from stdin a list of options,
+parses the command line for the actual option values
+and outputs a shell string that assigns the
+parsed values to variable names."
+
+_comma_separated() {
+	sed -re ':a
+		N
+		$!ba
+		s/([^[:space:]])[[:space:]]+([^[:space:]])/\1'"${1:-","}"'\2/g
+		s/^[[:space:]]+|[[:space:]]+$//g'
+}
+
+_trim_unquote() {
+	sed -re ":a
+s|^[[:blank:]]+(.*)$|\1|;t a
+s|^(.*)[[:blank:]]+$|\1|;t a
+s|^'(.*)'$|\1|;t a
+s|^\"(.*)\"$|\1|;t a"
+}
+
+_uppercase() {
+	[[ ${1} =~ u ]]
+}
+
+_lowercase() {
+	[[ ${1} =~ l ]]
+}
+
+_indicator() {
+	[[ ${1} =~ i ]]
+}
+
+_affirmative() {
+	[[ ${1} =~ a ]]
+}
+
+_value() {
+	[[ ${1} =~ v ]]
+}
+
+_multiple() {
+	[[ ${1} =~ m ]]
+}
+
+_choice() {
+	[[ ${1} =~ c ]]
+}
+
+_multiple_choice() {
+	[[ ${1} =~ h ]]
+}
+
+_required() {
+	[ -n "${LNET_GETOPT_ALLREQ:-}" ] || \
+		[[ ${1} =~ r ]]
+}
+
+_print_val() {
+	local value="${1}"
+	local optiontype="${2:-}"
+	! _uppercase "${optiontype}" || \
+		value="${value^^}"
+	! _lowercase "${optiontype}" || \
+		value="${value,,}"
+	if [ -n "${value}" ] && \
+	( [ "$(printf '%q' "${value}")" = "${value}" ] || \
+	grep -qsxe "^'.*'$" <<< "${value}" ); then
+		printf '%s' "${value}"
+	else
+		printf '%s' "'${value}'"
+	fi
+}
+
+_print_var_val() {
+	local varname="${1}"
+	local value="${2}"
+	local optiontype="${3:-}"
+	printf '%s=%s;\n' "${varname}" "$(_print_val "${value}" "${optiontype}")"
+}
+
+_print_array() {
+	local value
+	for value in "${@}"; do
+		printf '%s ' "$(_print_val "${value}")"
+	done
+}
+
+_vars_default() {
+	local option optiontype varname choicelist defaultvalue
+	local defaultval
+	unset option optiontype varname choicelist defaultvalue
+	while read option optiontype varname choicelist defaultvalue; do
+		if [ -n "${varname}" ] && \
+		! grep -qswe "${varname}" <<< "${set_vars}"; then
+			defaultval=""
+			if _indicator "${optiontype}" || \
+			_affirmative "${optiontype}"; then
+				defaultval="${choicelist}"
+			else
+				defaultval="${defaultvalue}"
+			fi
+			if [ -n "${defaultval}" ]; then
+				if _required "${optiontype}"; then
+					_print_var_val "${varname}" "${defaultval}" "${optiontype}"
+					set_vars="${set_vars}${set_vars:+" "}${varname}"
+					LNET_GETOPT_DEFAULTS+=( "${varname}" )
+					[ -z "${LNET_GETOPT_SHOWCMD}" ] || \
+						LNET_GETOPT_CMD+=("${option}" "${defaultval}")
+				fi
+			fi
+		fi
+		unset option optiontype varname choicelist defaultvalue
+	done <<< "${optionlist}"
+}
+
+_required_vars() {
+	local required_var required_vars required_not_set
+	if [ -n "${LNET_GETOPT_ALLREQ:-""}" ]; then
+		required_vars="$(awk '{print $3}' <<< "${optionlist}" | \
+			sort --unique)"
+	else
+		required_vars="$(awk '$2 ~ "[r]" {print $3}' <<< "${optionlist}" | \
+			sort --unique)"
+	fi
+	required_not_set=""
+	for required_var in ${required_vars}; do
+		grep -qswe "${required_var}" <<< "${set_vars}" || \
+			required_not_set="${required_not_set}${required_not_set:+" "}${required_var}"
+	done
+	if [ -n "${required_not_set}" ]; then
+		_print_var_val "LNET_GETOPT_ERR_REQUIRED" "${required_not_set}"
+		LNET_GETOPT_ERR="Yes"
+	fi
+}
+
+_anyrequired_vars() {
+	local required_vars
+	required_vars="$(awk '$2 ~ "[o]" {print $3; rc=-1}
+		END{exit rc+1}' <<< "${optionlist}" | \
+		sort --unique)" && \
+	! grep -qswF "${required_vars}" <<< "${set_vars}" || \
+		return 0
+	_print_var_val "LNET_GETOPT_ERR_ANYREQUIRED" "Yes"
+	LNET_GETOPT_ERR="Yes"
+}
+
+_not_used_vars() {
+	local not_used_vars var
+	not_used_vars=""
+	for var in $(awk '{print $3}' <<< "${optionlist}" | \
+	sort --unique); do
+		if ! grep -qswe "${var}" <<< "${set_vars}"; then
+			if [ "${LNET_GETOPT_UNSET}" = "clear" ]; then
+				printf '%s\n' "${var}=;"
+			else
+				not_used_vars="${not_used_vars}${not_used_vars:+" "}${var}"
+			fi
+		fi
+	done
+	if [ -n "${not_used_vars}" ]; then
+		if [ -n "${LNET_GETOPT_UNSET}" ]; then
+			printf '%s\n' "unset ${not_used_vars};"
+		else
+			printf '%s\n' "LNET_GETOPT_NOTUSED='${not_used_vars}';"
+		fi
+	fi
+}
+
+_pos_vars() {
+	# global option optiontype mval_varname
+	local varname="${1}"
+	local val="${2}"
+	
+	if awk -v varname="${varname}" \
+	 '{exit !(NR == 1 && $3 == varname)}' <<< "${optionlist_pos}"; then
+		optionlist_pos="$(awk 'NR != 1' <<< "${optionlist_pos}")"
+		found="Pos"
+	fi
+	if _multiple "${optiontype}"; then
+		shift
+		if _lowercase "${optiontype}" || \
+		_uppercase "${optiontype}"; then
+			mvalue=( $(for val in "${@}"; do
+				printf '%s ' "$(_print_val "${val}" "${optiontype}")"
+				done) )
+		else
+			mvalue=( "${@}" )
+		fi
+		[ -z "${LNET_GETOPT_SHOWCMD}" ] || \
+			LNET_GETOPT_CMD+=("${option}" "${@}")
+		mval_varname="${varname}"
+	elif grep -qswe "${varname}" <<< "${set_vars}"; then
+		LNET_GETOPT_ERR_DUPLICATE="${LNET_GETOPT_ERR_DUPLICATE}\
+${LNET_GETOPT_ERR_DUPLICATE:+" "}${varname}"
+		LNET_GETOPT_ERR="Yes"
+	else
+		_print_var_val "${varname}" "${val}" "${optiontype}"
+		[ -z "${LNET_GETOPT_SHOWCMD}" ] || \
+			LNET_GETOPT_CMD+=("${option}" "${val}")
+	fi
+	if ! grep -qswe "${varname}" <<< "${set_vars}"; then
+		set_vars="${set_vars}${set_vars:+" "}${varname}"
+		optionlist_pos="$(awk '$3 != "'${varname}'"' <<< "${optionlist_pos}")"
+	fi
+	[ -n "${found}" ] || \
+		found="Yes"
+}
+
+_value_valid() {
+	local val="${1}"
+	local regexp="${2}"
+
+	if _uppercase "${optiontype}"; then
+		val="${val^^}"
+	elif _lowercase "${optiontype}"; then
+		val="${val,,}"
+	fi
+
+	[ -z "${regexp}" ] || \
+		[ "${regexp}" = "//" ] || \
+		[[ ${val} =~ ${regexp} ]]
+}
+
+_choice_valid() {
+	local val="${1}"
+	local choicelist="${2}"
+
+	if _uppercase "${optiontype}"; then
+		val="${val^^}"
+	elif _lowercase "${optiontype}"; then
+		val="${val,,}"
+	fi
+
+	grep -qsiwe "${val}" <<< "${choicelist}"
+}
+
+_multiple_choice_valid() {
+	local val="$(sed -r -e '/[[:space:],]+/ s// /g' <<< "${1}" | \
+		_comma_separated ' ')"
+	local choicelist="${2}"
+	local choice
+
+	if _uppercase "${optiontype}"; then
+		val="${val^^}"
+	elif _lowercase "${optiontype}"; then
+		val="${val,,}"
+	fi
+
+	if [ -n "${choicelist//[^|]/}" ]; then
+		[ "${val}" != "${choicelist##*|}" ] || \
+			return 0
+		choicelist="${choicelist%|*}"
+	fi
+	for choice in ${val}; do
+		grep -qsiwe "${choice}" <<< "${choicelist}" || \
+			return 1
+	done
+	:
+}
+
+_multiple_choice_unique() {
+	local val="${1}"
+
+	if _uppercase "${optiontype}"; then
+		val="${val^^}"
+	elif _lowercase "${optiontype}"; then
+		val="${val,,}"
+	fi
+
+	tr -s '[:space:],' '\n' <<< "${val}" | \
+		sort --unique | \
+		_comma_separated
+}
+
+_indicator_valid() {
+	local arg="${1,,}"
+	case "${arg}" in
+	true|t|yes|y|1)
+		printf '%s' "Yes"
+		;;
+	false|f|no|n|0)
+		printf '%s' "No"
+		;;
+	*)
+		return 1
+		;;
+	esac
+	:
+}
+
+_affirmative_valid() {
+	local arg="${1,,}"
+	case "${arg}" in
+	true|t|yes|y|1)
+		printf '%s' "Yes"
+		;;
+	*)
+		return 1
+		;;
+	esac
+	:
+}
+
+_negative_option(){
+	local arg="${1}"
+	local option optiontype varname choicelist defaultvalue
+	unset option optiontype varname choicelist defaultvalue
+	while read option optiontype varname choicelist defaultvalue; do
+		[ -n "${varname}" ] || continue
+		if _indicator "${optiontype}"; then
+			_pos_vars "${varname}" 'No'
+			break
+		fi
+		unset option optiontype varname choicelist defaultvalue
+	done < <(awk -v arg="${arg}" '$1 == arg' <<< "${optionlist}")
+}
+
+_getopt_optionlist() {
+	2> /dev/null \
+	awk 'BEGIN{PROCINFO["-", "READ_TIMEOUT"] = 50
+		c=0}
+		$1 !~ "^#" && $2 ~ "[iavmch]" {c++
+		print c,$1,$2,$3,$4,$5}
+		END{exit (c == 0)}' | \
+		sort -k4,4 -u | \
+		sort -nk1,1 | \
+		awk 'BEGIN{PROCINFO["sorted_in"] = "@ind_num_desc"}
+		{ split($2, a, ",")
+		for (v in a) print a[v],$3,$4,$5,$6 }'
+}
+
+# Read stdin for a List of Options
+if optionlist="$(_getopt_optionlist)"; then
+	if [ -n "${LNET_GETOPT_ALLPOS:-""}" ]; then
+		optionlist_pos="${optionlist}"
+	else
+		optionlist_pos="$(awk '$2 ~ "[p]"' <<< "${optionlist}")"
+	fi
+else
+	echo "Error: can't read options list from stdin." >&2
+	printf '%s\n' "${usage}" >&2
+	exit 1
+fi
+
+mvalue=()
+set_vars=""
+mval_varname=""
+[ -z "${LNET_GETOPT_SHOWCMD}" ] || \
+	LNET_GETOPT_CMD=()
+LNET_GETOPT_ERR=""
+LNET_GETOPT_ERR_ANYREQUIRED=""
+LNET_GETOPT_ERR_CHOICE=""
+LNET_GETOPT_ERR_DUPLICATE=""
+LNET_GETOPT_ERR_VALUE=""
+LNET_GETOPT_DEFAULTS=()
+while [ -n "${1:-""}" ]; do
+	ARGUMENT="${1}"
+	found=""
+	# value options
+	unset option optiontype varname choicelist defaultvalue
+	[ -n "${found}" -o -n "${LNET_GETOPT_ERR}" ] || \
+	while read option optiontype varname choicelist defaultvalue; do
+		[ -n "${varname}" ] || continue
+		if _value "${optiontype}"; then
+			if grep -qse "^${option}=" <<< "${ARGUMENT}"; then
+				val="$(_trim_unquote <<< "${ARGUMENT#*=}")"
+			else
+				shift
+				val="$(_trim_unquote <<< "${1:-}")"
+			fi
+			if _value_valid "${val}" "${choicelist}"; then
+				_pos_vars "${varname}" "${val}"
+			else
+				LNET_GETOPT_ERR_VALUE="${LNET_GETOPT_ERR_VALUE}${LNET_GETOPT_ERR_VALUE:+" "}${varname}=${val}"
+				LNET_GETOPT_ERR="Yes"
+			fi
+		elif _multiple "${optiontype}"; then
+			shift
+			if grep -qse "^${option}=" <<< "${ARGUMENT}"; then
+				if [ "${#}" -gt 0 ]; then
+					_pos_vars "${varname}" "${ARGUMENT#*=}" "${@}"
+				else
+					_pos_vars "${varname}" "${ARGUMENT#*=}"
+				fi
+			else
+				if [ "${#}" -gt 0 ]; then
+					_pos_vars "${varname}" "${@}"
+				else
+					LNET_GETOPT_ERR_VALUE="${LNET_GETOPT_ERR_VALUE}${LNET_GETOPT_ERR_VALUE:+" "}${varname}=(NULL)"
+					LNET_GETOPT_ERR="Yes"
+				fi
+			fi
+			set --
+			break 2
+		elif _choice "${optiontype}"; then
+			if grep -qse "^${option}=" <<< "${ARGUMENT}"; then
+				val="${ARGUMENT#*=}"
+			else
+				shift
+				val="${1:-""}"
+			fi
+			if [ -z "${val}" ]; then
+				LNET_GETOPT_ERR_CHOICE="${LNET_GETOPT_ERR_CHOICE}${LNET_GETOPT_ERR_CHOICE:+" "}${varname}=(NULL)"
+				LNET_GETOPT_ERR="Yes"
+			else
+				val="$(printf '%s' "${val}" | _trim_unquote)"
+				if _choice_valid "${val}" "${choicelist}"; then
+					_pos_vars "${varname}" "${val}"
+				else
+					LNET_GETOPT_ERR_CHOICE="${LNET_GETOPT_ERR_CHOICE}${LNET_GETOPT_ERR_CHOICE:+" "}${varname}=${val}"
+					LNET_GETOPT_ERR="Yes"
+				fi
+			fi
+		elif _multiple_choice "${optiontype}"; then
+			if grep -qse "^${option}=" <<< "${ARGUMENT}"; then
+				val="${ARGUMENT#*=}"
+			else
+				shift
+				val="${1:-""}"
+			fi
+			if [ -z "${val}" ]; then
+				LNET_GETOPT_ERR_CHOICE="${LNET_GETOPT_ERR_CHOICE}${LNET_GETOPT_ERR_CHOICE:+" "}${varname}=(NULL)"
+				LNET_GETOPT_ERR="Yes"
+			else
+				val="$(_multiple_choice_unique "$(_trim_unquote <<< "${val}")")"
+				if _multiple_choice_valid "${val}" "${choicelist}"; then
+					_pos_vars "${varname}" "${val}"
+				else
+					LNET_GETOPT_ERR_CHOICE="${LNET_GETOPT_ERR_CHOICE}${LNET_GETOPT_ERR_CHOICE:+" "}${varname}=${val}"
+					LNET_GETOPT_ERR="Yes"
+				fi
+			fi
+		elif _indicator "${optiontype}"; then
+			val=""; value=""
+			if grep -qse "^${option}=" <<< "${ARGUMENT}" && \
+			val="$(_trim_unquote <<< "${ARGUMENT#*=}")"; then
+				value="$(_indicator_valid "${val}")" || :
+			elif [ -n "${2:-""}" ] && \
+			value="$(_indicator_valid "$(printf '%s' "${2}" | _trim_unquote)")"; then
+				shift
+			else
+				value="Yes"
+			fi
+			if [ -n "${value}" ]; then
+				_pos_vars "${varname}" "${value}"
+			else
+				LNET_GETOPT_ERR_CHOICE="${LNET_GETOPT_ERR_CHOICE}${LNET_GETOPT_ERR_CHOICE:+" "}${varname}=${val}"
+				LNET_GETOPT_ERR="Yes"
+			fi
+		elif _affirmative "${optiontype}"; then
+			val=""; value=""
+			if grep -qse "^${option}=" <<< "${ARGUMENT}" && \
+			val="$(_trim_unquote <<< "${ARGUMENT#*=}")"; then
+				value="$(_affirmative_valid "${val}")" || :
+			elif [ -n "${2:-""}" ] && \
+			value="$(_affirmative_valid "$(printf '%s' "${2}" | _trim_unquote)")"; then
+				shift
+			else
+				value="Yes"
+			fi
+			if [ -n "${value}" ]; then
+				_pos_vars "${varname}" "${value}"
+			else
+				LNET_GETOPT_ERR_CHOICE="${LNET_GETOPT_ERR_CHOICE}${LNET_GETOPT_ERR_CHOICE:+" "}${varname}=${val}"
+				LNET_GETOPT_ERR="Yes"
+			fi
+		fi
+		[ -z "${found}" -a -z "${LNET_GETOPT_ERR}" ] || break
+		unset option optiontype varname choicelist defaultvalue
+	done < <(awk -v arg="${ARGUMENT%%=*}" \
+		'$1 == arg' <<< "${optionlist}" 2> /dev/null)
+
+	# negative options
+	if [ -z "${found}" -a -z "${LNET_GETOPT_ERR}" -a \
+	"$(printf '%s' "${ARGUMENT%${ARGUMENT#??}}" | tr '[A-Z]' '[a-z]')" = "no" ]; then
+		_negative_option "${ARGUMENT#*??}"
+	fi
+	if [ -z "${found}" -a -z "${LNET_GETOPT_ERR}" -a \
+	"$(printf '%s' "${ARGUMENT%${ARGUMENT#???}}" | tr '[A-Z]' '[a-z]')" = "-no" ]; then
+		_negative_option "-${ARGUMENT#*???}"
+	fi
+	if [ -z "${found}" -a -z "${LNET_GETOPT_ERR}" -a \
+	"$(printf '%s' "${ARGUMENT%${ARGUMENT#????}}" | tr '[A-Z]' '[a-z]')" = "--no" ]; then
+		_negative_option "--${ARGUMENT#*????}"
+	fi
+	# positional values, option type "p"
+	if [ -z "${found}" -a -z "${LNET_GETOPT_ERR}" ]; then
+		unset option optiontype varname choicelist defaultvalue
+		while read option optiontype varname choicelist defaultvalue; do
+			[ -n "${varname}" ] || continue
+			if _indicator "${optiontype}"; then
+				if value="$(_indicator_valid "${ARGUMENT}")"; then
+					ARGUMENT="${value}"
+					found="Pos"
+				elif [ -n "${LNET_GETOPT_ALLVARS:-""}" ]; then
+					LNET_GETOPT_ERR_VALUE="${LNET_GETOPT_ERR_VALUE}${LNET_GETOPT_ERR_VALUE:+" "}${varname}=${ARGUMENT}"
+					LNET_GETOPT_ERR="Yes"
+				fi
+			elif _affirmative "${optiontype}"; then
+				if value="$(_affirmative_valid "${ARGUMENT}")"; then
+					ARGUMENT="${value}"
+					found="Pos"
+				elif [ -n "${LNET_GETOPT_ALLVARS:-""}" ]; then
+					LNET_GETOPT_ERR_VALUE="${LNET_GETOPT_ERR_VALUE}${LNET_GETOPT_ERR_VALUE:+" "}${varname}=${ARGUMENT}"
+					LNET_GETOPT_ERR="Yes"
+				fi
+			elif _value "${optiontype}"; then
+				if _value_valid "${ARGUMENT}" "${choicelist}"; then
+					found="Pos"
+				elif [ -n "${LNET_GETOPT_ALLVARS:-""}" ]; then
+					LNET_GETOPT_ERR_VALUE="${LNET_GETOPT_ERR_VALUE}${LNET_GETOPT_ERR_VALUE:+" "}${varname}=${ARGUMENT}"
+					LNET_GETOPT_ERR="Yes"
+				fi
+			elif _multiple "${optiontype}"; then
+				found="Pos"
+				_pos_vars "${varname}" "${@}"
+				set --
+				break 2
+			elif _choice "${optiontype}"; then
+				if _choice_valid "${ARGUMENT}" "${choicelist}"; then
+					found="Pos"
+				elif [ -n "${LNET_GETOPT_ALLVARS:-""}" ]; then
+					LNET_GETOPT_ERR_CHOICE="${LNET_GETOPT_ERR_CHOICE}${LNET_GETOPT_ERR_CHOICE:+" "}${varname}=${ARGUMENT}"
+					LNET_GETOPT_ERR="Yes"
+				fi
+			elif _multiple_choice "${optiontype}"; then
+				if _multiple_choice_valid "${ARGUMENT}" "${choicelist}"; then
+					ARGUMENT="$(_multiple_choice_unique "${ARGUMENT}")"
+					found="Pos"
+				elif [ -n "${LNET_GETOPT_ALLVARS:-""}" ]; then
+					LNET_GETOPT_ERR_CHOICE="${LNET_GETOPT_ERR_CHOICE}${LNET_GETOPT_ERR_CHOICE:+" "}${varname}=${ARGUMENT}"
+					LNET_GETOPT_ERR="Yes"
+				fi
+			fi
+			break # read first line only
+		done <<< "${optionlist_pos}"
+
+		[ -z "${found}" -a -z "${LNET_GETOPT_ERR}" ] || \
+			_pos_vars "${varname}" "${ARGUMENT}"
+	else
+		[ "${found}" = "Pos" ] || \
+			optionlist_pos=""
+	fi
+	[ -n "${found}" -a -z "${LNET_GETOPT_ERR}" ] || \
+		break
+	shift
+done
+_vars_default
+_required_vars
+if [ -n "${mval_varname:-}" ]; then
+	printf '%s=( ' "${mval_varname}"
+	_print_array "${mvalue[@]}"
+	printf '%s\n' " ) ;"
+fi
+_not_used_vars
+_anyrequired_vars
+if [ -n "${LNET_GETOPT_ALLVARS:-""}" ] && \
+[ -n "${1:-""}" ]; then
+	printf '%s\n' "LNET_GETOPT_ERR_ALLVARS='Yes' ;"
+	LNET_GETOPT_ERR="Yes"
+fi
+printf '%s' "set -- "
+_print_array "${@}"
+printf '%s\n' ";"
+
+if [ -n "${LNET_GETOPT_SHOWCMD:-""}" ]; then
+	printf '%s' "LNET_GETOPT_CMD=( "
+	_print_array "${LNET_GETOPT_CMD[@]}"
+	printf '%s\n' " ) ;"
+fi
+
+printf '%s' "LNET_GETOPT_DEFAULTS=( "
+_print_array "${LNET_GETOPT_DEFAULTS[@]}"
+printf '%s\n' " ) ;"
+
+if [ -n "${LNET_GETOPT_ERR}" ]; then
+	printf '%s\n' "$(set | \
+		awk -F "=" '$1 ~ "^LNET_GETOPT_ERR_" {print $0 ";"}')"
+	exit 1
+fi
+:

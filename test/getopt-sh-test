@@ -1,0 +1,73 @@
+#!/bin/bash
+
+set -e
+
+# getopt-sh-test
+
+if [ ${#} -lt 1 ]; then
+	echo  "To check it, execute:
+
+./getopt-sh-test access='v1 ask' m2 agp='v4 v25 v55' \\
+noapache2 audio reboot=REBOOT aninvalidoption noautologin
+
+./getopt-sh-test queu1 job1 \\
+reboot=HALT -s RUN,HOLD access='v1 ask' m2 audio \\
+aninvalidoption='1 2 3' noautologin 2>&1 | pager
+"
+	exit 1
+fi
+
+getopt="$(which getopt-sh)" || \
+getopt="$(which "bin/getopt-sh")" || \
+getopt="$(which "../bin/getopt-sh")" || exit 1
+
+test -x "${getopt}" || exit 1
+
+LNET_GETOPT_DEFAULT="y"
+LNET_GETOPT_UNSET="y"
+LNET_GETOPT_SHOWCMD="y"
+unset LNET_GETOPT_ALLREQ
+unset LNET_GETOPT_ALLREQ
+unset LNET_GETOPT_ALLVARS
+export LNET_GETOPT_DEFAULT LNET_GETOPT_UNSET LNET_GETOPT_ALLREQ \
+		LNET_GETOPT_ALLPOS LNET_GETOPT_ALLVARS LNET_GETOPT_SHOWCMD
+
+if ! getopt_result="$(echo "#cheatcodes paramtype variable [choice list] [default]
+-q,queue vp LNET_QUEUE
+-j,job vp LNET_JOB
+delay vrp LNET_DELAY /^[[:digit:]]{1,2}$/ 20
+autologin ip LNET_XAUTOLOGIN
+accessibility i LNET_ACCESSIBILITY
+# accessibility type = v1, v2, v3 ask, m1, m2
+access m LNET_ACCESS // ask,v1
+agp v LNET_AGP // Agp-v2
+apache2 i LNET_APACHE2 yes
+apparmor i LNET_DISABLE_APPARMOR
+append-hostimages i LNET_APPEND_HOSTIMAGES
+aptcdrom i LNET_APT_CDROM
+audio i LNET_AUDIO
+-s,--status hr LNET_STATUS JOBQ,RUN,HOLD,TERM,CANC JOBQ,RUN,HOLD
+apache2 m LNET_APACHE2
+poweroff,reboot c LNET_REBOOT HALT,REBOOT,SUSPEND,HIBERNATE HIBERNATE" | \
+${getopt} "${@}")"; then
+	echo "getopt-sh has detected some errors,
+However this test will continue..." >&2
+fi
+echo "Result:
+${getopt_result}
+."
+eval ${getopt_result}
+
+echo "Remaining ${#} options: \"${@}\"."
+while [ -n "${1}" ]; do
+        echo "${1}"
+        shift
+done
+echo "Actual set of LNET variables:"
+set | sed -e '\|^LNET_|!d'
+echo "Array variable LNET_ACCESS:"
+for access in "${LNET_ACCESS[@]}"; do
+        echo "${access}"
+done
+:
+ 

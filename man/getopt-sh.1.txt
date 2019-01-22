@@ -1,0 +1,262 @@
+GETOPT-SH(1)
+============
+Jordi Pujol Palomer <jordipujolp@gmail.com>
+01/Jan/2013
+
+Name
+----
+
+getopt-sh - advanced getopt functionality to use in shell programs.
+
+Synopsis
+--------
+
+*getopt-sh* implements a parametrized command line parser
+to assign values to a defined set of variables.
+
+Description
+-----------
+*getopt-sh* reads lines of text via stdin. That
+lines contain the definition of each parameter to parse.
+
+The command line is parsed according the parameter's definitions
+to output a set of bash assignments
+of variable names to parsed values.
+
+Usage
+-----
+ result="$(echo "option-optiontype-variable list" | \
+getopt-sh options-to-parse)"
+
+Input list
+----------
+This utility is driven by a list of parameters that
+is read from stdin.
+
+This list contains multiple lines, one for each parameter.
+
+Each line has the following structure:
+
+ optionnames parametertype variablename regex(v|m)choicelist(c|h) [defaultvalue]
+
+  *optionnames*::
+
+ *getopt-sh* accepts multiple short and long option names
+for each parameter.
+*optionnames* is a comma delimited list of cheatcodes
+to be used in the command line.
+
+  *parametertype*::
+
+the type of parameter is one character, from the following:
+
+  v::
+
+ *Value*,
+
+  m::
+
+ *Multiple values*,
+the command line can contain one parameter that lists multiple values, 
+values are stored in an array. Only one parameter of this kind is 
+allowed, the rest of the commmand line contains the values. This 
+feature is implemented using bash arrays.
+
+ cheatcode=value1 "value 2" ... "value N"
+
+  c::
+
+ *Choice*,
+the parameter value can be chosen from a list of values.
+
+  h::
+
+ *Multiple Choice*,
+the parameter is a list of values separated by comma
+that are chosen from a list of values.
+
+  i::
+
+ *Indicator* has *affirmative* and *negative* forms. Examples:
+"option/nooption" or "-option/-nooption" or "--option/--nooption";
+and returns the values "*Yes*" or "*No*",
+corresponding to *enabled* or *disabled* status.
+
+  a::
+
+ an *indicator* that only has affirmative form.
+
+Additional characters may add *attributes* to a *parameter type*:
+
+  r::
+
+ *Required* parameter.
+That parameter should have a value.
+If a *required* parameter is empty then his default value is assigned.
+Configurable, if the environment variable *LNET_GETOPT_ALLREQ*
+is set, then all parameters will be required.
+
+  o::
+
+ *Any of this set of* parameters must have a value,
+else an error will be emitted.
+
+  p::
+
+ *Positional*.
+In the command line, an option name is not required, only the value.
+In this manner, most frequent parameters are read as positional values
+from the beggining of the command line.
+Specifying this attribute for a parameter makes it
+positional. All of them will be positional
+if we set the environment variable *LNET_GETOPT_ALLPOS*.
+
+  l::
+
+ *Lowercase*.
+Transform the result value to lowercase.
+
+  u::
+
+ *Uppercase*.
+Transform the result value to uppercase.
+
+  *variablename*::
+
+ *shell variable* name.
+
+  *regex*::
+
+ *regular expression* to validate the values,
+For parameters of types *Value* or *Multiple Value*.
+Two consecutive slashes *//* mean no regular expression for this 
+parameter.
+
+  *choicelist*::
+
+ *list of values* to choose; they are separated by comma
+(only for parameters of types *Choice* or *Multiple Choice*),
+For parameters of type *Multiple Choice* we may specify at the end of 
+that string an optional single value separated by *|*.
+
+  *defaultvalue*::
+
+ is an *optional default value* for any parameter type.
+If the environment variable *LNET_GETOPT_DEFAULT* is set,
+all defaults are assigned
+to their corresponding variable when it's empty.
+It does not work for *Multiple value* parameters.
+
+Parse
+-----
+*getopt-sh* parses the command line
+according to the input list of parameters.
+The command line is composed of option names and values.
+
+The equal sign in the assignment of parameter values is optional.
+
+If the values contain spaces, must be quoted.
+
+Positional parameters may omit the option name.
+
+The indicators are specified with the option name, for the negative form,
+preceded by "no".
+
+Output
+------
+The output will list the variables not used,
+and, if specified, will print an unset command
+when the environment variable *LNET_GETOPT_UNSET*
+has been set to any value.
+
+The output will list the rest of command line,
+in the form of a command *set --*
+
+If all the tokens in the command line must be parsed into parameters,
+the variable *LNET_GETOPT_ALLVARS* should be set.
+In this case, when remains a rest of the command line,
+this utility will print an error.
+
+On exit, if any error has been detected then the return code is set.
+
+Obs
+---
+Note the different behavior from bash's getopt, here all options must be
+separated from the others, this utility does not group cheatcodes.
+
+Options
+-------
+*getopt-sh* gets his options via *environment variables*.
+Set the corresponding variable to any value, or *unset* it.
+
+  *LNET_GETOPT_ALLPOS*::
+
+ all parameters are positional.
+
+  *LNET_GETOPT_ALLREQ*::
+
+ all parameters are required.
+
+  *LNET_GETOPT_ALLVARS*::
+
+ all the command line must be parsed into parameters
+or an error code is printed.
+
+  *LNET_GETOPT_DEFAULT*::
+
+ all empty variables are set to their default values.
+
+  *LNET_GETOPT_UNSET*::
+
+ an unset command is printed for all empty variables.
+If *LNET_GETOPT_UNSET="clear"* then all empty variables
+are assigned to an empty string.
+
+  *LNET_GETOPT_SHOWCMD*::
+ the array variable LNET_GETOPT_CMD will be printed,
+it contains the parsed cheatcodes and values of the command line.
+
+Examples
+--------
+
+  *Values*::
+
+ parameters values are specified by their cheatcode and the
+value; equal sign is optional; if the value contains spaces
+must be quoted:
+
+ cheatcode="value that contains spaces"
+
+  *Indicator*::
+
+ affirmative and negative forms, value "Yes" or "No"
+is assigned to the corresponding variable:
+
+ --log / --nolog
+
+ --log 1 / --log 0
+
+ --log y / --log n
+
+ --log yes / --log no
+
+  *Positional parameters*::
+
+ We can omit the cheatcode for a positional parameter.
+Positional parameters must appear in order in the input list,
+and thus be specified in the same order in the command line.
+
+To check it, or more info,
+try the test programs included in the package:
+
+ test/getopt-sh-test
+
+See also
+--------
+getopt(1), getopts(1)
+
+Copying
+-------
+Copyright \(C) 2009-2016 Jordi Pujol. Free use of this software is
+granted under the terms of the GNU General Public License (GPL)
+version 2, or at your choice, any later version.

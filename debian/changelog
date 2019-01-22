@@ -1,0 +1,130 @@
+getopt-sh (0.32) unstable; urgency=medium
+
+  * type "o": any of this set of variables must have a value.
+    LNET_GETOPT_ERR_ANYREQUIRED
+
+ -- Jordi Pujol Palomer <jordipujolp@gmail.com>  Sat, 01 Dec 2018 15:15:02 +0100
+
+getopt-sh (0.31) unstable; urgency=medium
+
+  * affirmative type "a".
+    variables of this type are indicators that may be specified
+    only in affirmative form.
+  * valid multiple choice separators are only comma or space.
+  * transform positional options into uppercase or lowercase
+
+ -- Jordi Pujol Palomer <jordipujolp@gmail.com>  Sun, 05 Feb 2017 11:00:18 +0100
+
+getopt-sh (0.30) unstable; urgency=medium
+
+  * options to transform values to uppercase or lowercase.
+  * parameters of types Multiple Choice:
+    at the end of the choicelist we may specify an optional single value
+    separated by | (vertical bar).
+
+ -- Jordi Pujol Palomer <jordipujolp@gmail.com>  Sun, 20 Nov 2016 14:14:56 +0100
+
+getopt-sh (0.29) unstable; urgency=medium
+
+  * bug correction: detect invalid choice when blank
+
+ -- Jordi Pujol Palomer <jordipujolp@gmail.com>  Thu, 03 Nov 2016 18:20:27 +0100
+
+getopt-sh (0.28) unstable; urgency=medium
+
+  * list variable names that get default values
+
+ -- Jordi Pujol Palomer <jordipujolp@gmail.com>  Sun, 30 Oct 2016 13:28:58 +0100
+
+getopt-sh (0.27) unstable; urgency=medium
+
+  * variable with multiple values stored in array
+
+ -- Jordi Pujol Palomer <jordipujolp@gmail.com>  Sun, 11 Sep 2016 19:31:40 +0200
+
+getopt-sh (0.26) unstable; urgency=medium
+
+  * makeup, add copyright file, fullfill the package descriptions
+
+ -- Jordi Pujol Palomer <jordipujolp@gmail.com>  Wed, 27 Jan 2016 10:12:10 +0100
+
+getopt-sh (0.25) unstable; urgency=low
+
+  * Add messages for unsuccessful actions.
+
+ -- Jordi Pujol Palomer <jordipujolp@gmail.com>  Mon, 18 Aug 2014 08:21:15 +0200
+
+getopt-sh (0.24) unstable; urgency=low
+
+  * Option "clear" for environment variable LNET_GETOPT_UNSET,
+    unused variables will be assigned to a null string.
+
+ -- Jordi Pujol Palomer <jordipujolp@gmail.com>  Thu, 11 Apr 2013 14:01:03 +0200
+
+getopt-sh (0.23) unstable; urgency=low
+
+  * If the environment LNET_GETOPT_SHOWCMD is set then
+    the array variable LNET_GETOPT_CMD will be printed,
+    it contains the parsed cheatcodes and values of the command line.
+
+ -- Jordi Pujol Palomer <jordipujolp@gmail.com>  Fri, 22 Mar 2013 09:46:40 +0100
+
+getopt-sh (0.22) unstable; urgency=low
+
+  * abandon parse when the first command line error is found.
+    When a command line is not correct
+    it is not possible continue parsing.
+
+ -- Jordi Pujol Palomer <jordipujolp@gmail.com>  Sun, 10 Mar 2013 17:02:23 +0100
+
+getopt-sh (0.21) unstable; urgency=low
+
+  * print error LNET_GETOPT_ERR_VALUE for invalid values in positional parameters.
+
+ -- Jordi Pujol Palomer <jordipujolp@gmail.com>  Sat, 09 Mar 2013 13:03:33 +0100
+
+getopt-sh (0.20) unstable; urgency=low
+
+  * regex pattern to test parameters of type value and multiple value.
+
+ -- Jordi Pujol Palomer <jordipujolp@gmail.com>  Thu, 28 Feb 2013 13:35:42 +0100
+
+getopt-sh (0.19) unstable; urgency=low
+
+  * command line: testing better when the input contains an equal sign,
+    '^cheatcode=.*'.
+  * choice and multiple choice: case unsensitive.
+
+ -- Jordi Pujol Palomer <jordipujolp@gmail.com>  Sun, 24 Feb 2013 10:22:25 +0100
+
+getopt-sh (0.18) unstable; urgency=low
+
+  * purge dummy code.
+  * manage duplicate input in command line.
+
+ -- Jordi Pujol Palomer <jordipujolp@gmail.com>  Thu, 31 Jan 2013 10:40:46 +0100
+
+getopt-sh (0.17) unstable; urgency=low
+
+  * read unique variable names from stdin.
+  * echo an error when same option is specified multiple times.
+  * shift incorrect values for choice and multiple choice.
+  * test has been modified following that.
+
+ -- Jordi Pujol Palomer <jordipujolp@gmail.com>  Wed, 30 Jan 2013 17:25:44 +0100
+
+getopt-sh (0.16) unstable; urgency=low
+
+  * trim spaces and unquote all values.
+  * add examples.
+  * field "h": multiple choice from a list
+
+ -- Jordi Pujol Palomer <jordipujolp@gmail.com>  Thu, 17 Jan 2013 09:03:10 +0100
+
+getopt-sh (0.15) unstable; urgency=low
+
+  * Initial Release.
+    Package this utility separate
+    of live-net-initramfs.
+
+ -- Jordi Pujol Palomer <jordipujolp@gmail.com>  Wed, 16 Jan 2013 11:02:42 +0100

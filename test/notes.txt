@@ -1,0 +1,6 @@
+./getopt-sh-test queu1 job1 No access='v1 ask' access=m2 audio reboot=HALT -s RUN,HOLD aninvalidoption='1 2 3' noautologin 2>&1 | pager
+
+
+sort  -t: -n -r -k2,2 -k1,1 vegetables
+
+sort  -t:  -k2,2n -k1,1r vegetables
